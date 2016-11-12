@@ -23,7 +23,10 @@ import qualified Language.PureScript.Names as N
 import           System.Console.Haskeline
 
 -- Completions may read the state, but not modify it.
-type CompletionM = ReaderT PSCiState IO
+type CompletionM = CompletionT IO
+
+-- Completions may read the state, but not modify it.
+type CompletionT m = ReaderT PSCiState m
 
 -- Lift a `CompletionM` action into a state monad.
 liftCompletionM
@@ -139,13 +142,17 @@ headSatisfies p str =
     (c:_)  -> p c
     _     -> False
 
-getLoadedModules :: CompletionM [P.Module]
+getLoadedModules :: Monad m => CompletionT m [P.Module]
 getLoadedModules = asks (map fst . psciLoadedExterns)
 
-getModuleNames :: CompletionM [String]
+getModuleNames :: Monad m => CompletionT m [String]
 getModuleNames = moduleNames <$> getLoadedModules
 
-mapLoadedModulesAndQualify :: (a -> String) -> (P.Module -> [(a, P.Declaration)]) -> CompletionM [String]
+mapLoadedModulesAndQualify
+  :: Monad m
+  => (a -> String)
+  -> (P.Module -> [(a, P.Declaration)])
+  -> CompletionT m [String]
 mapLoadedModulesAndQualify sho f = do
   ms <- getLoadedModules
   let argPairs = do m <- ms
@@ -153,19 +160,24 @@ mapLoadedModulesAndQualify sho f = do
                     return (m, fm)
   concat <$> traverse (uncurry (getAllQualifications sho)) argPairs
 
-getIdentNames :: CompletionM [String]
+getIdentNames :: Monad m => CompletionT m [String]
 getIdentNames = mapLoadedModulesAndQualify P.showIdent identNames
 
-getDctorNames :: CompletionM [String]
+getDctorNames :: Monad m => CompletionT m [String]
 getDctorNames = mapLoadedModulesAndQualify P.runProperName dctorNames
 
-getTypeNames :: CompletionM [String]
+getTypeNames :: Monad m => CompletionT m [String]
 getTypeNames = mapLoadedModulesAndQualify P.runProperName typeDecls
 
 -- | Given a module and a declaration in that module, return all possible ways
 -- it could have been referenced given the current PSCiState - including fully
 -- qualified, qualified using an alias, and unqualified.
-getAllQualifications :: (a -> String) -> P.Module -> (a, P.Declaration) -> CompletionM [String]
+getAllQualifications
+  :: Monad m
+  => (a -> String)
+  -> P.Module
+  -> (a, P.Declaration)
+  -> CompletionT m [String]
 getAllQualifications sho m (declName, decl) = do
   imports <- getAllImportsOf m
   let fullyQualified = qualifyWith (Just (P.getModuleName m))
@@ -185,7 +197,7 @@ getAllQualifications sho m (declName, decl) = do
 
 -- | Returns all the ImportedModule values referring to imports of a particular
 -- module.
-getAllImportsOf :: P.Module -> CompletionM [ImportedModule]
+getAllImportsOf :: Monad m => P.Module -> CompletionT m [ImportedModule]
 getAllImportsOf = asks . allImportsOf
 
 nubOnFst :: Eq a => [(a, b)] -> [(a, b)]
